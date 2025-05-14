@@ -10,11 +10,11 @@ client = OpenAI(
 )
 
 chat_response = client.chat.completions.create(
-    model="./Qwen3-1.7B",
+    model="./Qwen3-0.6B",
     messages=[
         {
             "role": "user",
-            "content": "简要介绍北京理工大学和清华大学的区别",
+            "content": "请你写一首唐诗",
         },
     ],
     max_tokens=8192,
