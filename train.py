@@ -42,17 +42,80 @@ def load_dataset_files(dir_path):
     return valid_data
 
 
-# 改进的数据处理函数（增加分词步骤）
 def process_data(example):
-    instruction = "请根据以下信息创作一首唐诗："
-    content = f"作者：{example['author']}\n 标题：{example['title']}"
-    poem = "\n".join(example["paragraphs"])
+    # 数据清洗步骤
+    try:
+        # 1. 必填字段检查
+        required_fields = ['author', 'title', 'paragraphs']
+        for field in required_fields:
+            if field not in example or not example[field]:
+                return None  # 丢弃缺失关键字段的样本
 
-    # 构建完整文本（指令+输入+输出）
-    full_text = f"{instruction}\n{content}\n{poem}"
+        # 2. 作者名称规范化
+        author = example['author'].strip()
+        if len(author) < 1 or len(author) > 15:  # 过滤异常作者名
+            return None
+        
+        # 3. 标题清洗
+        title = example['title'].strip()
+        title = title.replace("《", "").replace("》", "")  # 去除书名号
+        if len(title) < 2 or len(title) > 30:  # 过滤异常标题
+            return None
 
-    # 直接返回文本，后续由tokenizer处理
-    return {"text": full_text}
+        # 4. 诗句处理
+        paragraphs = []
+        for line in example['paragraphs']:
+            # 去除空白字符并替换异常标点
+            cleaned_line = line.strip() \
+                .replace(' ', '') \  # 删除中间空格
+                .replace(',', '，') \  # 统一中文标点
+                .replace('.', '。') \
+                .replace('!', '！') \
+                .replace('?', '？')
+            
+            # 过滤特殊符号（保留常规中文标点）
+            allowed_chars = r'[\u4e00-\u9fa5，。！？、；：“”‘’（）《》—…]'
+            cleaned_line = ''.join(re.findall(allowed_chars, cleaned_line))
+            
+            if 5 <= len(cleaned_line) <= 35:  # 保留合理长度的诗句
+                paragraphs.append(cleaned_line)
+        
+        # 5. 过滤无效诗歌结构
+        if len(paragraphs) < 4 or len(paragraphs) > 16:  # 常见唐诗格式要求
+            return None
+        total_chars = sum(len(line) for line in paragraphs)
+        if total_chars < 20 or total_chars > 500:  # 合理长度范围
+            return None
+
+        # 6. 标签处理
+        tags = example.get('tags', [])
+        if isinstance(tags, str):  # 处理可能的字符串格式标签
+            tags = tags.split(',')
+        tags = [t.strip() for t in tags if t.strip()]
+        tags = tags[:5]  # 最多保留5个标签
+        if not tags:  # 默认标签
+            tags = ["唐诗", "古诗"]
+
+        # 构建格式化文本
+        instruction = "请根据以下信息创作一首唐诗："
+        content = f"作者：{author}\n标题：{title}\n标签：{'，'.join(tags)}"
+        poem = "\n".join(paragraphs)
+        
+        # 添加格式标识符
+        full_text = (
+            f"<|startoftext|>\n"
+            f"{instruction}\n"
+            f"【创作信息】\n{content}\n"
+            f"【诗歌内容】\n{poem}\n"
+            f"<|endoftext|>"
+        )
+        
+        return {"text": full_text}
+
+    except Exception as e:
+        # 记录异常数据
+        print(f"处理数据时发生异常：{e}，数据样例：{example}")
+        return None
 
 
 # 加载并处理数据集
