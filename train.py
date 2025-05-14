@@ -1,4 +1,5 @@
 import json
+import re
 from datasets import load_dataset
 from datasets import Dataset
 from transformers import AutoTokenizer
@@ -46,61 +47,54 @@ def process_data(example):
     # 数据清洗步骤
     try:
         # 1. 必填字段检查
-        required_fields = ['author', 'title', 'paragraphs']
+        required_fields = ["author", "title", "paragraphs"]
         for field in required_fields:
             if field not in example or not example[field]:
-                return None  # 丢弃缺失关键字段的样本
+                return {"text": None}
 
         # 2. 作者名称规范化
-        author = example['author'].strip()
+        author = example["author"].strip()
         if len(author) < 1 or len(author) > 15:  # 过滤异常作者名
-            return None
-        
+            return {"text": None}
+
         # 3. 标题清洗
-        title = example['title'].strip()
+        title = example["title"].strip()
         title = title.replace("《", "").replace("》", "")  # 去除书名号
         if len(title) < 2 or len(title) > 30:  # 过滤异常标题
-            return None
+            return {"text": None}
 
         # 4. 诗句处理
         paragraphs = []
-        for line in example['paragraphs']:
+        for line in example["paragraphs"]:
             # 去除空白字符并替换异常标点
-            cleaned_line = line.strip() \
-                .replace(' ', '') \  # 删除中间空格
-                .replace(',', '，') \  # 统一中文标点
-                .replace('.', '。') \
-                .replace('!', '！') \
-                .replace('?', '？')
-            
+            cleaned_line = (
+                line.strip()
+                .replace(" ", "")
+                .replace(",", "，")
+                .replace(".", "。")
+                .replace("!", "！")
+                .replace("?", "？")
+            )
+
             # 过滤特殊符号（保留常规中文标点）
-            allowed_chars = r'[\u4e00-\u9fa5，。！？、；：“”‘’（）《》—…]'
-            cleaned_line = ''.join(re.findall(allowed_chars, cleaned_line))
-            
+            allowed_chars = r"[\u4e00-\u9fa5，。！？、；：“”‘’（）《》—…]"
+            cleaned_line = "".join(re.findall(allowed_chars, cleaned_line))
+
             if 5 <= len(cleaned_line) <= 35:  # 保留合理长度的诗句
                 paragraphs.append(cleaned_line)
-        
+
         # 5. 过滤无效诗歌结构
         if len(paragraphs) < 4 or len(paragraphs) > 16:  # 常见唐诗格式要求
-            return None
+            return {"text": None}
         total_chars = sum(len(line) for line in paragraphs)
         if total_chars < 20 or total_chars > 500:  # 合理长度范围
-            return None
-
-        # 6. 标签处理
-        tags = example.get('tags', [])
-        if isinstance(tags, str):  # 处理可能的字符串格式标签
-            tags = tags.split(',')
-        tags = [t.strip() for t in tags if t.strip()]
-        tags = tags[:5]  # 最多保留5个标签
-        if not tags:  # 默认标签
-            tags = ["唐诗", "古诗"]
+            return {"text": None}
 
         # 构建格式化文本
         instruction = "请根据以下信息创作一首唐诗："
-        content = f"作者：{author}\n标题：{title}\n标签：{'，'.join(tags)}"
+        content = f"作者：{author}\n标题：{title}\n"
         poem = "\n".join(paragraphs)
-        
+
         # 添加格式标识符
         full_text = (
             f"<|startoftext|>\n"
@@ -109,13 +103,13 @@ def process_data(example):
             f"【诗歌内容】\n{poem}\n"
             f"<|endoftext|>"
         )
-        
+
         return {"text": full_text}
 
     except Exception as e:
         # 记录异常数据
         print(f"处理数据时发生异常：{e}，数据样例：{example}")
-        return None
+        return {"text": None}
 
 
 # 加载并处理数据集
@@ -130,6 +124,8 @@ tokenizer.pad_token = tokenizer.eos_token
 # 数据预处理流水线
 processed_dataset = raw_dataset.map(
     process_data, remove_columns=raw_dataset.column_names
+).filter(
+    lambda example: example["text"] is not None  # 过滤掉无效数据
 )
 
 
